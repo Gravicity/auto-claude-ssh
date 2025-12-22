@@ -101,7 +101,8 @@ export function useProjectSettings(
     claude: true,
     linear: false,
     github: false,
-    graphiti: false
+    graphiti: false,
+    ssh: false
   });
 
   // GitHub state

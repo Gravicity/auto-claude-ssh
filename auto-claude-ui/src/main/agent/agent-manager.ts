@@ -322,6 +322,13 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
+   * Get the process manager instance (for SSH testing, etc.)
+   */
+  getProcessManager(): AgentProcessManager {
+    return this.processManager;
+  }
+
+  /**
    * Store task execution context for potential restarts
    */
   private storeTaskContext(

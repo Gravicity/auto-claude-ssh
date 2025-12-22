@@ -6,7 +6,8 @@ import { is } from '@electron-toolkit/utils';
 import { IPC_CHANNELS, DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import type {
   AppSettings,
-  IPCResult
+  IPCResult,
+  SSHConnectionStatus
 } from '../../shared/types';
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
@@ -302,6 +303,26 @@ export function registerSettingsHandlers(
     IPC_CHANNELS.SHELL_OPEN_EXTERNAL,
     async (_, url: string): Promise<void> => {
       await shell.openExternal(url);
+    }
+  );
+
+  // ============================================
+  // SSH Remote Execution
+  // ============================================
+
+  ipcMain.handle(
+    'ssh:test-connection',
+    async (_, projectPath: string): Promise<SSHConnectionStatus> => {
+      try {
+        const processManager = agentManager.getProcessManager();
+        const status = await processManager.testSSHConnection(projectPath);
+        return status;
+      } catch (error) {
+        return {
+          connected: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
     }
   );
 }

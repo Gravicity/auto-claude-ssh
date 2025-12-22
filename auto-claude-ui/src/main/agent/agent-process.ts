@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { app } from 'electron';
@@ -10,6 +10,7 @@ import { detectRateLimit, createSDKRateLimitInfo, getProfileEnv, detectAuthFailu
 import { projectStore } from '../project-store';
 import { getClaudeProfileManager } from '../claude-profile-manager';
 import { findPythonCommand, parsePythonCommand } from '../python-detector';
+import { SSHExecutionConfig, SSHConnectionStatus } from '../../shared/types/project';
 
 /**
  * Process spawning and lifecycle management
@@ -96,6 +97,196 @@ export class AgentProcessManager {
     return env;
   }
 
+  // ============================================
+  // SSH Remote Execution Methods
+  // ============================================
+
+  /**
+   * Check if SSH remote execution is enabled for a project
+   */
+  isSSHEnabled(projectPath: string): boolean {
+    const projects = projectStore.getProjects();
+    const project = projects.find((p) => p.path === projectPath);
+    return project?.settings?.sshEnabled === true &&
+           project?.settings?.sshConfig?.host != null &&
+           project?.settings?.sshConfig?.remotePath != null;
+  }
+
+  /**
+   * Get SSH configuration for a project
+   */
+  getSSHConfig(projectPath: string): SSHExecutionConfig | null {
+    const projects = projectStore.getProjects();
+    const project = projects.find((p) => p.path === projectPath);
+    if (project?.settings?.sshEnabled && project?.settings?.sshConfig) {
+      return project.settings.sshConfig;
+    }
+    return null;
+  }
+
+  /**
+   * Build SSH command with environment variable forwarding
+   * Returns [command, args] tuple for spawn()
+   */
+  buildSSHCommand(
+    sshConfig: SSHExecutionConfig,
+    pythonCommand: string,
+    pythonArgs: string[],
+    envVars: Record<string, string>
+  ): [string, string[]] {
+    const {
+      host,
+      remotePath,
+      port = 22,
+      identityFile = '~/.ssh/id_ed25519',
+      remotePythonCommand = 'python3',
+      forwardEnvVars = ['CLAUDE_CODE_OAUTH_TOKEN'],
+      connectionTimeout = 10
+    } = sshConfig;
+
+    // Build environment export commands
+    const envExports = forwardEnvVars
+      .filter(key => envVars[key])
+      .map(key => {
+        // Escape single quotes in values for shell safety
+        const value = envVars[key].replace(/'/g, "'\\''");
+        return `export ${key}='${value}'`;
+      })
+      .join(' && ');
+
+    // Build the Python command - join args with proper shell quoting
+    const quotedArgs = pythonArgs.map(arg => {
+      // If arg contains spaces or special chars, quote it
+      if (/[\s'"\\$`!]/.test(arg)) {
+        return `'${arg.replace(/'/g, "'\\''")}'`;
+      }
+      return arg;
+    });
+    const remoteCmd = `${remotePythonCommand} ${quotedArgs.join(' ')}`;
+
+    // Combine: cd to project dir, export env vars, run Python command
+    const fullRemoteCommand = envExports
+      ? `cd '${remotePath}' && ${envExports} && ${remoteCmd}`
+      : `cd '${remotePath}' && ${remoteCmd}`;
+
+    // Build SSH args
+    const sshArgs: string[] = [];
+
+    // Add identity file
+    if (identityFile) {
+      sshArgs.push('-i', identityFile.replace(/^~/, process.env.HOME || ''));
+    }
+
+    // Add port if non-standard
+    if (port !== 22) {
+      sshArgs.push('-p', String(port));
+    }
+
+    // Connection options
+    sshArgs.push(
+      '-o', `ConnectTimeout=${connectionTimeout}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      '-o', 'BatchMode=yes'  // Don't prompt for password
+    );
+
+    // Add host and command
+    sshArgs.push(host, fullRemoteCommand);
+
+    return ['ssh', sshArgs];
+  }
+
+  /**
+   * Test SSH connection to remote server
+   * Returns connection status for UI feedback
+   */
+  async testSSHConnection(projectPath: string): Promise<SSHConnectionStatus> {
+    const sshConfig = this.getSSHConfig(projectPath);
+
+    if (!sshConfig) {
+      return {
+        connected: false,
+        error: 'SSH is not configured for this project'
+      };
+    }
+
+    const {
+      host,
+      remotePath,
+      port = 22,
+      identityFile = '~/.ssh/id_ed25519',
+      connectionTimeout = 10
+    } = sshConfig;
+
+    const startTime = Date.now();
+
+    try {
+      // Build SSH test command
+      const sshArgs: string[] = [];
+
+      if (identityFile) {
+        sshArgs.push('-i', identityFile.replace(/^~/, process.env.HOME || ''));
+      }
+      if (port !== 22) {
+        sshArgs.push('-p', String(port));
+      }
+      sshArgs.push(
+        '-o', `ConnectTimeout=${connectionTimeout}`,
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', 'BatchMode=yes'
+      );
+
+      // Test: connect and check if remote path exists
+      sshArgs.push(host, `test -d '${remotePath}' && echo SSH_TEST_SUCCESS`);
+
+      const result = execSync(`ssh ${sshArgs.join(' ')}`, {
+        encoding: 'utf-8',
+        timeout: (connectionTimeout + 5) * 1000
+      });
+
+      const latencyMs = Date.now() - startTime;
+
+      if (result.includes('SSH_TEST_SUCCESS')) {
+        return {
+          connected: true,
+          host,
+          remotePath,
+          latencyMs
+        };
+      } else {
+        return {
+          connected: false,
+          host,
+          remotePath,
+          error: `Remote path does not exist: ${remotePath}`,
+          latencyMs
+        };
+      }
+    } catch (err) {
+      const latencyMs = Date.now() - startTime;
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+
+      // Parse common SSH errors for better UX
+      let friendlyError = errorMessage;
+      if (errorMessage.includes('Permission denied')) {
+        friendlyError = 'Permission denied. Check your SSH key and server configuration.';
+      } else if (errorMessage.includes('Connection refused')) {
+        friendlyError = 'Connection refused. Is the SSH server running on the remote host?';
+      } else if (errorMessage.includes('Connection timed out') || errorMessage.includes('ETIMEDOUT')) {
+        friendlyError = `Connection timed out after ${connectionTimeout}s. Check host and network.`;
+      } else if (errorMessage.includes('Host key verification failed')) {
+        friendlyError = 'Host key verification failed. Remove old key from ~/.ssh/known_hosts.';
+      }
+
+      return {
+        connected: false,
+        host,
+        remotePath,
+        error: friendlyError,
+        latencyMs
+      };
+    }
+  }
+
   /**
    * Load environment variables from auto-claude .env file
    */
@@ -165,17 +356,55 @@ export class AgentProcessManager {
 
     // Parse Python command to handle space-separated commands like "py -3"
     const [pythonCommand, pythonBaseArgs] = parsePythonCommand(this.pythonPath);
-    const childProcess = spawn(pythonCommand, [...pythonBaseArgs, ...args], {
-      cwd,
-      env: {
-        ...process.env,
-        ...extraEnv,
-        ...profileEnv, // Include active Claude profile config
-        PYTHONUNBUFFERED: '1', // Ensure real-time output
-        PYTHONIOENCODING: 'utf-8', // Ensure UTF-8 encoding on Windows
-        PYTHONUTF8: '1' // Force Python UTF-8 mode on Windows (Python 3.7+)
-      }
-    });
+
+    // Merge all environment variables
+    const combinedEnv: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      ...extraEnv,
+      ...profileEnv, // Include active Claude profile config
+      PYTHONUNBUFFERED: '1', // Ensure real-time output
+      PYTHONIOENCODING: 'utf-8', // Ensure UTF-8 encoding on Windows
+      PYTHONUTF8: '1' // Force Python UTF-8 mode on Windows (Python 3.7+)
+    };
+
+    // Check for SSH remote execution
+    const isRemote = this.isSSHEnabled(cwd);
+    const sshConfig = isRemote ? this.getSSHConfig(cwd) : null;
+
+    let spawnCommand: string;
+    let spawnArgs: string[];
+    let spawnOptions: { cwd: string; env: Record<string, string> };
+
+    if (isRemote && sshConfig) {
+      // SSH remote execution - run Python via SSH on remote server
+      console.log(`[AgentProcess] SSH remote execution enabled for ${cwd}`);
+      console.log(`[AgentProcess] Remote host: ${sshConfig.host}, path: ${sshConfig.remotePath}`);
+
+      const [sshCmd, sshArgs] = this.buildSSHCommand(
+        sshConfig,
+        pythonCommand,
+        [...pythonBaseArgs, ...args],
+        combinedEnv
+      );
+
+      spawnCommand = sshCmd;
+      spawnArgs = sshArgs;
+      // For SSH, we don't set env vars on spawn (they're forwarded via SSH command)
+      spawnOptions = {
+        cwd,
+        env: process.env as Record<string, string>
+      };
+    } else {
+      // Local execution (original behavior)
+      spawnCommand = pythonCommand;
+      spawnArgs = [...pythonBaseArgs, ...args];
+      spawnOptions = {
+        cwd,
+        env: combinedEnv
+      };
+    }
+
+    const childProcess = spawn(spawnCommand, spawnArgs, spawnOptions);
 
     this.state.addProcess(taskId, {
       taskId,

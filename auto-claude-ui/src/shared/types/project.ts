@@ -24,6 +24,42 @@ export interface ProjectSettings {
   graphitiMcpUrl?: string;
   /** Main branch name for worktree creation (default: auto-detected or 'main') */
   mainBranch?: string;
+  /** Enable SSH remote execution for this project */
+  sshEnabled?: boolean;
+  /** SSH remote execution configuration */
+  sshConfig?: SSHExecutionConfig;
+}
+
+/**
+ * SSH Remote Execution Configuration
+ * Enables running Auto Claude agents on remote servers (VPS, Raspberry Pi, etc.)
+ */
+export interface SSHExecutionConfig {
+  /** SSH host (user@hostname or SSH config alias like 'ovh', 'piserver') */
+  host: string;
+  /** Absolute path to project on remote server */
+  remotePath: string;
+  /** SSH port (default: 22) */
+  port?: number;
+  /** Path to SSH identity file (default: ~/.ssh/id_ed25519) */
+  identityFile?: string;
+  /** Python command on remote server (default: python3) */
+  remotePythonCommand?: string;
+  /** Environment variables to forward to remote (default: CLAUDE_CODE_OAUTH_TOKEN) */
+  forwardEnvVars?: string[];
+  /** Connection timeout in seconds (default: 10) */
+  connectionTimeout?: number;
+}
+
+/**
+ * SSH Connection Status for UI feedback
+ */
+export interface SSHConnectionStatus {
+  connected: boolean;
+  host?: string;
+  remotePath?: string;
+  error?: string;
+  latencyMs?: number;
 }
 
 export interface NotificationSettings {

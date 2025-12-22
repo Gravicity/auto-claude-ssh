@@ -14,6 +14,7 @@ import { GeneralSettings } from './GeneralSettings';
 import { EnvironmentSettings } from './EnvironmentSettings';
 import { IntegrationSettings } from './IntegrationSettings';
 import { SecuritySettings } from './SecuritySettings';
+import { SSHSettings } from './SSHSettings';
 import { useProjectSettings } from './hooks/useProjectSettings';
 import type { Project } from '../../../shared/types';
 
@@ -146,6 +147,17 @@ export function ProjectSettings({ project, open, onOpenChange }: ProjectSettings
                   setShowOpenAIKey={setShowOpenAIKey}
                   expanded={expandedSections.graphiti}
                   onToggle={() => toggleSection('graphiti')}
+                />
+
+                <Separator />
+
+                {/* SSH Remote Execution */}
+                <SSHSettings
+                  project={project}
+                  settings={settings}
+                  setSettings={setSettings}
+                  expanded={expandedSections.ssh}
+                  onToggle={() => toggleSection('ssh')}
                 />
               </>
             )}
