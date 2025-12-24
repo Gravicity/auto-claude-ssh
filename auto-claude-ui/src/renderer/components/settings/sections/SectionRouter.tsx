@@ -3,6 +3,7 @@ import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { EnvironmentSettings } from '../../project-settings/EnvironmentSettings';
 import { SecuritySettings } from '../../project-settings/SecuritySettings';
+import { SSHSettings } from '../../project-settings/SSHSettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { InitializationGuard } from '../common/InitializationGuard';
@@ -193,6 +194,22 @@ export function SectionRouter({
               onToggle={() => {}}
             />
           </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'ssh':
+      return (
+        <SettingsSection
+          title="SSH Remote Execution"
+          description="Run agent tasks on a remote server via SSH"
+        >
+          <SSHSettings
+            project={project}
+            settings={settings}
+            setSettings={setSettings}
+            expanded={true}
+            onToggle={() => {}}
+          />
         </SettingsSection>
       );
 

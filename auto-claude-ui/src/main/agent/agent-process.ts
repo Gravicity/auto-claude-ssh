@@ -125,6 +125,39 @@ export class AgentProcessManager {
   }
 
   /**
+   * Build common SSH connection arguments (identity, port, timeouts)
+   * Used by both command execution and connection testing
+   */
+  private buildSSHBaseArgs(sshConfig: SSHExecutionConfig): string[] {
+    const {
+      port = 22,
+      identityFile = '~/.ssh/id_ed25519',
+      connectionTimeout = 10
+    } = sshConfig;
+
+    const sshArgs: string[] = [];
+
+    // Add identity file with tilde expansion
+    if (identityFile) {
+      sshArgs.push('-i', identityFile.replace(/^~/, process.env.HOME || ''));
+    }
+
+    // Add port if non-standard
+    if (port !== 22) {
+      sshArgs.push('-p', String(port));
+    }
+
+    // Connection options
+    sshArgs.push(
+      '-o', `ConnectTimeout=${connectionTimeout}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      '-o', 'BatchMode=yes'  // Don't prompt for password
+    );
+
+    return sshArgs;
+  }
+
+  /**
    * Build SSH command with environment variable forwarding
    * Returns [command, args] tuple for spawn()
    */
@@ -137,11 +170,8 @@ export class AgentProcessManager {
     const {
       host,
       remotePath,
-      port = 22,
-      identityFile = '~/.ssh/id_ed25519',
       remotePythonCommand = 'python3',
-      forwardEnvVars = ['CLAUDE_CODE_OAUTH_TOKEN'],
-      connectionTimeout = 10
+      forwardEnvVars = ['CLAUDE_CODE_OAUTH_TOKEN']
     } = sshConfig;
 
     // Build environment export commands
@@ -169,25 +199,8 @@ export class AgentProcessManager {
       ? `cd '${remotePath}' && ${envExports} && ${remoteCmd}`
       : `cd '${remotePath}' && ${remoteCmd}`;
 
-    // Build SSH args
-    const sshArgs: string[] = [];
-
-    // Add identity file
-    if (identityFile) {
-      sshArgs.push('-i', identityFile.replace(/^~/, process.env.HOME || ''));
-    }
-
-    // Add port if non-standard
-    if (port !== 22) {
-      sshArgs.push('-p', String(port));
-    }
-
-    // Connection options
-    sshArgs.push(
-      '-o', `ConnectTimeout=${connectionTimeout}`,
-      '-o', 'StrictHostKeyChecking=accept-new',
-      '-o', 'BatchMode=yes'  // Don't prompt for password
-    );
+    // Build SSH args using shared helper
+    const sshArgs = this.buildSSHBaseArgs(sshConfig);
 
     // Add host and command
     sshArgs.push(host, fullRemoteCommand);
@@ -209,31 +222,13 @@ export class AgentProcessManager {
       };
     }
 
-    const {
-      host,
-      remotePath,
-      port = 22,
-      identityFile = '~/.ssh/id_ed25519',
-      connectionTimeout = 10
-    } = sshConfig;
+    const { host, remotePath, connectionTimeout = 10 } = sshConfig;
 
     const startTime = Date.now();
 
     try {
-      // Build SSH test command
-      const sshArgs: string[] = [];
-
-      if (identityFile) {
-        sshArgs.push('-i', identityFile.replace(/^~/, process.env.HOME || ''));
-      }
-      if (port !== 22) {
-        sshArgs.push('-p', String(port));
-      }
-      sshArgs.push(
-        '-o', `ConnectTimeout=${connectionTimeout}`,
-        '-o', 'StrictHostKeyChecking=accept-new',
-        '-o', 'BatchMode=yes'
-      );
+      // Build SSH args using shared helper
+      const sshArgs = this.buildSSHBaseArgs(sshConfig);
 
       // Test: connect and check if remote path exists
       sshArgs.push(host, `test -d '${remotePath}' && echo SSH_TEST_SUCCESS`);

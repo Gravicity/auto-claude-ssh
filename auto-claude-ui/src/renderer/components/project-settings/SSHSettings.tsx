@@ -127,7 +127,7 @@ export function SSHSettings({
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="max-w-xs text-xs">
-                          SSH host alias (e.g., "ovh", "piserver") or full address (e.g., "user@server.com")
+                          SSH host alias (e.g., "my-server", "build-box") or full address (e.g., "user@server.com")
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -135,7 +135,7 @@ export function SSHSettings({
                 </div>
                 <Input
                   id="ssh-host"
-                  placeholder="ovh, piserver, or user@hostname"
+                  placeholder="my-server, build-box, or user@hostname"
                   value={settings.sshConfig?.host || ''}
                   onChange={(e) => updateSSHConfig('host', e.target.value)}
                 />

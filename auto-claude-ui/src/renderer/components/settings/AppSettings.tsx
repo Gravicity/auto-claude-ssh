@@ -13,7 +13,8 @@ import {
   Zap,
   Github,
   Database,
-  Sparkles
+  Sparkles,
+  Server
 } from 'lucide-react';
 import {
   FullScreenDialog,
@@ -69,7 +70,8 @@ const projectNavItems: NavItem<ProjectSettingsSection>[] = [
   { id: 'claude', label: 'Claude Auth', icon: Key, description: 'Claude authentication' },
   { id: 'linear', label: 'Linear', icon: Zap, description: 'Linear integration' },
   { id: 'github', label: 'GitHub', icon: Github, description: 'GitHub issues sync' },
-  { id: 'memory', label: 'Memory', icon: Database, description: 'Graphiti memory backend' }
+  { id: 'memory', label: 'Memory', icon: Database, description: 'Graphiti memory backend' },
+  { id: 'ssh', label: 'SSH Remote', icon: Server, description: 'Run agents on remote server' }
 ];
 
 /**
